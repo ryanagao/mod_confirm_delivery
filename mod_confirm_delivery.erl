@@ -72,24 +72,16 @@ user_send_packet({#message{to = Peer} = Pkt, #{jid := JID} = C2SState}) ->
      	if (MessageType /= error) ->
 			packet_checking(Pkt, "SendPacket"),
 
-			{_,Message_ID,Type,_,FromJID,ToJID,_,Message,_,_,_} = Pkt,
+			%% mod_confirm_delivery send logic %%
+			{_,MessageID,Type,_,ToJID,FromJID,_,Message,_,_,_} = Pkt,
 
 			if (Message =/= []) ->
-				?INFO_MSG("Message_ID: ~p", [ctl(Message_ID)]),
-				?INFO_MSG("Type: ~p", [Type]),
-				?INFO_MSG("FromJID: ~p", [FromJID]),
-				?INFO_MSG("ToJID: ~p", [ToJID]),
-				?INFO_MSG("Message: ~p", [Message]),
-				?INFO_MSG("LUser: ~p", [LUser]),
-				?INFO_MSG("LServer: ~p", [LServer]),
-
 				[{_,_,Body}] = Message,
 				{_,From,FromServer,_,_,_,_} = FromJID,
 				{_,To,ToServer,_,_,_,_} = ToJID,
 
 				FromString = ctl(From) ++ "@" ++ ctl(FromServer),
 				ToString = ctl(To) ++ "@" ++ ctl(ToServer),
-
 
 				if (Type == chat) ->
 				EventBody = hd(element(10, Pkt)),
@@ -98,10 +90,14 @@ user_send_packet({#message{to = Peer} = Pkt, #{jid := JID} = C2SState}) ->
 						{_,ChatState,_,_} = EventBody,
 
 						if (ChatState == <<"markable">>) ->
-							{ok, Ref} = timer:apply_after(10000, mod_confirm_delivery, get_session, [LUser, LServer, From, To, Pkt]),
+							% {ok, Ref} = timer:apply_after(10000, mod_confirm_delivery, get_session, [LUser, LServer, From, To, Pkt]),
+							{ok, Ref} = timer:apply_after(10000, mod_confirm_delivery, get_session, [From, LServer, From, To, Pkt]),
 
-							?INFO_MSG("Saving To ~p Ref ~p~n",[Message_ID, Ref]),
-							emongo:insert(pool, "confirm_delivery", [{"message_id", ctl(Message_ID)},{"ref", Ref}]),
+							{RefA,RefB} = Ref,
+							RefBList = ref_to_list(RefB),
+
+							?INFO_MSG("Saving to mongo: MsgID ~p Ref ~p~n",[MessageID, Ref]),
+							emongo:insert(pool, "confirm_delivery", [{"message_id", ctl(MessageID)}, {"RefA", RefA}, {"RefB", RefBList}]),
 						
 						ok;
 						true ->
@@ -203,16 +199,26 @@ user_receive_packet({#message{from = Peer} = Pkt, #{jid := JID} = C2SState}) ->
 			  		      		% ?INFO_MSG("UserReceivePacket 4: Reference Identifer: ~p", [ctl(RefId)]),
 			  		      		?INFO_MSG("UserReceivePacket 4: Your ID : ~p", [ctl(MsgId)]),
 
+							  %% mod_confirm_delivery receive logic %%
 							  if (ChatState == <<"received">>) ->
-								Checking = emongo:find(pool, "confirm_delivery", [{<<"message_id">>, Msg_Id}],
+								Record = emongo:find(pool, "confirm_delivery", [{<<"message_id">>, MsgId}]),
 
-								% if (Checking /= []) ->
-								% 	emongo:delete(pool, "confirm_delivery", [{"message_id", ctl(MsgId)}]),
-								% 	?INFO_MSG("Remove ~p from conffirm_delivery collection", [MsgId]),
-								% ok;
-							  	% true ->
-							  	% ok
-							 	% end,
+								if (Record /= []) ->
+									[[_,_,RecA,RecB]] = Record,
+									{_,RefA} = RecA,
+									{_,RefBList} = RecB,
+									RefB = list_to_ref(ctl(RefBList)),
+									Ref ={RefA,RefB},
+
+									timer:cancel(Ref),
+									?INFO_MSG("Cancel Session Ref: ~p", [Ref]),
+
+									emongo:delete(pool, "confirm_delivery", [{"message_id", ctl(MsgId)}]),
+									?INFO_MSG("Remove Collection: ~p from confirm_delivery", [MsgId]),
+								ok;
+							  	true ->
+							  	ok
+							 	end,
 
 							  ok;
 							  true ->
@@ -527,35 +533,23 @@ valueToBinary(P) when true->
 	P.
 
 get_session(User, Server, From, To, Packet) ->   
-    ?INFO_MSG("get_session User: ~p Server: ~p From: ~p To ~p Msg_Id ~p Packet ~p~n",[User, Server, From, To, Packet]),
+    ?INFO_MSG("User: ~p Server: ~p From: ~p To ~p~n",[User, Server, From, To]),
 
-	%resend message here
+	% resend message here //ejabberd hrl cannot locate
 	% ejabberd_router:router(From, To, Packet),
-	?INFO_MSG("MESSAGE RESENT",[]),
+	% ?INFO_MSG("Resend Message",[]),
 
-	set_offline_message(User, Server, From, To, Packet),
-    ?INFO_MSG("Set offline message",[]).
+	set_offline_message(User, Server, From, To, Packet).
 
 set_offline_message(User, Server, From, To, Packet) ->
 
-	% Checking = emongo:find(pool, "confirm_delivery", [{<<"message_id">>, Msg_Id}]),
-	% if (Checking =/= []) ->
+	{_,MessageID,_,_,_,_,_,_,_,_,_} = Packet,
+	Record = emongo:find(pool, "confirm_delivery", [{<<"message_id">>, MessageID}]),
 
-	{_,Message_ID,_,_,_,_,_,_,_,_,_} = Packet,
-		?INFO_MSG("set_offline_message User: ~p Server: ~p From: ~p To ~p Message_ID ~p Packet ~p~n",[User, Server, From, To, Message_ID,Packet]),    
-		F = fun() ->
-        	mnesia:write(#offline_msg{us = {User, Server}, timestamp = now(), expire = "never", from = From, to = To, packet = Packet})
-    	end,
-		mnesia:transaction(F),
-		emongo:delete(pool, "confirm_delivery", [{"message_id", ctl(Message_ID)}]).
-	% ok;
-	% true ->
-	% ok
-	% end.
-
-	% emongo:find(pool, "confirm_delivery", [{<<"message_id">>, "ed911394-0f5d-44f9-979d-1097b005c9ad"}]).
-	% emongo:find(pool, "confirm_delivery", [{<<"message_id">>, "ed911394-0f5d-44f9-979d-1097b005c9ads"}]).
-
-     
-
-
+	?INFO_MSG("Set to offline message: ~p",[MessageID]),
+	F = fun() ->
+		mnesia:write(#offline_msg{us = {User, Server}, timestamp = now(), expire = "never", to = To, from = From, packet = Packet})
+	end,
+	?INFO_MSG("USER: ~p",[User]),
+	mnesia:transaction(F),
+	emongo:delete(pool, "confirm_delivery", [{"message_id", ctl(MessageID)}]).
