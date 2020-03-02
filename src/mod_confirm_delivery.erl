@@ -80,7 +80,7 @@ user_send_packet({#message{to = Peer} = Pkt, #{jid := JID} = C2SState}) ->
 				{_,From,FromServer,_,_,_,_} = FromJID,
 				{_,To,ToServer,_,_,_,_} = ToJID,
 
-				if (Type == chat) ->
+				if (Type == chat) or (Type == groupchat) ->
 				EventBody = hd(element(10, Pkt)),
 						
 					if (tuple_size(EventBody) == 4) ->
@@ -240,6 +240,24 @@ user_receive_packet({#message{from = Peer} = Pkt, #{jid := JID} = C2SState}) ->
 			  		   	?INFO_MSG("UserReceivePacket tuplesize unknown: ~p Ilan: ~p~n Pkt: ~p", [Peer, tuple_size(EventBody), Pkt]),
 					   ok
 				    end,
+			  ok;
+			  (MessageType == groupchat) ->
+				  ?INFO_MSG("PACKET: ~p ", [Pkt]),
+
+			  		% EventBody = hd(element(10, Pkt)),
+			  		% if
+					%    (tuple_size(EventBody) == 3) ->
+					% 	 {Body1,Body2,Body3} = EventBody,
+					% 	 ?INFO_MSG("BODY_1: ~p ", [Body1]),
+					% 	 ?INFO_MSG("BODY_2: ~p ", [Body2]),
+					% 	 ?INFO_MSG("BODY_3: ~p ", [Body3]),
+					% 	 ?INFO_MSG("EVENTBODY: ~p ", [EventBody]),
+					% 	 ?INFO_MSG("PACKET: ~p ", [Pkt]),
+					%    ok;
+			  		%    true ->
+			  		%    	?INFO_MSG("UserReceivePacket tuplesize unknown: ~p Ilan: ~p~n Pkt: ~p", [Peer, tuple_size(EventBody), Pkt]),
+					%    ok
+				    % end,
 
 			  ok;
 			  (MessageType /= error) ->
