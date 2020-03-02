@@ -61,8 +61,8 @@ stop(Host) ->
 
 
 user_send_packet({#message{to = Peer} = Pkt, #{jid := JID} = C2SState}) ->
-    LUser = JID#jid.luser,
-    LServer = JID#jid.lserver,
+    % LUser = JID#jid.luser,
+    % LServer = JID#jid.lserver,
     ?INFO_MSG("UserSendPacket To: ~p Pkt: ~p", [Peer, Pkt]),
 
     %% filtering start here
@@ -73,15 +73,12 @@ user_send_packet({#message{to = Peer} = Pkt, #{jid := JID} = C2SState}) ->
 			packet_checking(Pkt, "SendPacket"),
 
 			%% mod_confirm_delivery send logic %%
-			{_,MessageID,Type,_,ToJID,FromJID,_,Message,_,_,_} = Pkt,
+			{_,MessageID,Type,_,FromJID,ToJID,_,Message,_,_,_} = Pkt,
 
 			if (Message =/= []) ->
 				[{_,_,Body}] = Message,
 				{_,From,FromServer,_,_,_,_} = FromJID,
 				{_,To,ToServer,_,_,_,_} = ToJID,
-
-				FromString = ctl(From) ++ "@" ++ ctl(FromServer),
-				ToString = ctl(To) ++ "@" ++ ctl(ToServer),
 
 				if (Type == chat) ->
 				EventBody = hd(element(10, Pkt)),
@@ -90,9 +87,7 @@ user_send_packet({#message{to = Peer} = Pkt, #{jid := JID} = C2SState}) ->
 						{_,ChatState,_,_} = EventBody,
 
 						if (ChatState == <<"markable">>) ->
-							% {ok, Ref} = timer:apply_after(10000, mod_confirm_delivery, get_session, [LUser, LServer, From, To, Pkt]),
-							{ok, Ref} = timer:apply_after(10000, mod_confirm_delivery, get_session, [From, LServer, From, To, Pkt]),
-
+							{ok, Ref} = timer:apply_after(10000, mod_confirm_delivery, get_session, [To, ToServer, FromJID, ToJID, Pkt]),
 							{RefA,RefB} = Ref,
 							RefBList = ref_to_list(RefB),
 
@@ -548,8 +543,7 @@ set_offline_message(User, Server, From, To, Packet) ->
 
 	?INFO_MSG("Set to offline message: ~p",[MessageID]),
 	F = fun() ->
-		mnesia:write(#offline_msg{us = {User, Server}, timestamp = now(), expire = "never", to = To, from = From, packet = Packet})
+		mnesia:write(#offline_msg{us = {User, Server}, timestamp = now(), expire = "never", from = From, to = To, packet = Packet})
 	end,
-	?INFO_MSG("USER: ~p",[User]),
 	mnesia:transaction(F),
 	emongo:delete(pool, "confirm_delivery", [{"message_id", ctl(MessageID)}]).
